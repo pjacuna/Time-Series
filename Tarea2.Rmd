@@ -1,0 +1,831 @@
+---
+output: 
+  html_document :
+    theme: cerulean
+    toc: true
+    toc_float: true
+
+---
+
+## Tarea 2 - Predicción de Inventarios Series de Tiempo {.tabset}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(knitr.table.format = "html") 
+suppressWarnings(suppressMessages(library(kknn)))
+suppressWarnings(suppressMessages(library(e1071)))
+suppressWarnings(suppressMessages(library(class)))
+suppressWarnings(suppressMessages(library(rpart)))
+suppressWarnings(suppressMessages(library(rpart.plot)))
+suppressWarnings(suppressMessages(library(randomForest)))
+suppressWarnings(suppressMessages(library(ada)))
+suppressWarnings(suppressMessages(library(nnet)))
+suppressWarnings(suppressMessages(library(ROCR)))
+suppressWarnings(suppressMessages(library(caret)))
+library(knitr)
+library(rmarkdown)
+library(readxl)
+library(dygraphs)
+library(xts)
+library(chron)
+library(lubridate)
+library(itsmr)
+library(timeDate)
+library(kableExtra)
+library(glmnet)
+        
+setwd("C:/users/paacun/Google Drive/Promidat/Series_de_Tiempo_Legrende/Tarea2")
+```
+
+### 1) Datos: uscrime.csv
+```{r}
+# Residual Sum of Square (RSS)
+RSS<-function(Pred,Real) {
+  ss<-sum((Real-Pred)^2)
+  return(ss)
+}
+
+# Residual Standard Error (RSE)
+# NumPred es el número total de predictores por eso se resta 1 (que es realidad sumar 1)
+RSE<-function(Pred,Real,NumPred) {
+  N<-length(Real)-NumPred-1  # <- length(Real)-(NumPred+1)
+  ss<-sqrt((1/N)*RSS(Pred,Real))
+  return(ss)
+}
+
+# Mean Squared Error 
+MSE <- function(Pred,Real) {
+  N<-length(Real)
+  ss<-(1/N)*RSS(Pred,Real)
+  return(ss)
+}
+
+# Error Ralativo
+ErrorRelativo<-function(Pred,Real) {
+  ss<-sum(abs(Real-Pred))/sum(abs(Real))
+  return(ss)
+}
+```
+
+
+```{r, fig.align='center'}
+uscrime <- read.csv("uscrime.csv",header=T,dec=".",sep=";")
+uscrime.train <- uscrime[1:1336,]
+uscrime.test <- uscrime[1337:1994,]
+```
+
+#### a) Regresión Lineal Múltiple
+```{r, fig.align='center'}
+#Con todas las variables
+modeloTVP<-lm(ViolentCrimesPerPop~.,data=uscrime.train)
+pred<-predict(modeloTVP,uscrime.test)
+#Lamada de las funciones para el calculo los errores
+
+#Summary sobre la tabla training para comparar la bondad del modelo con RSE
+summary(modeloTVP)
+#Se calcula la predicción sobre la tabla train para comparar el cálculo de RSE como se solicita en la tarea
+pred2<-predict(modeloTVP,uscrime.train)
+#RSE sobre tabla de training
+RSE(pred2,uscrime.train$ViolentCrimesPerPop,dim(uscrime.train)[2]-1)
+#MSE sobre la tabla test
+MSE.lm <- MSE(pred,uscrime.test$ViolentCrimesPerPop)
+#Error relativo sobre la tabla test
+Err.lm <- ErrorRelativo(pred,uscrime.test$ViolentCrimesPerPop)
+```
+Se observa cómo dan iguales los valores de RSE usando summary() y la función RSE(). En este caso como el cálculo de RSE se hace sobre la tabla training el resultado es la bondad del modelo.
+
+#### b) Regresión Ridge
+```{r, fig.align='center'}
+#Matriz con los predictores y quitando la primera columna
+x.train<-model.matrix(ViolentCrimesPerPop~.,uscrime.train)[,-1]
+#Variable a predecir
+y<-uscrime.train$ViolentCrimesPerPop
+# Tabla de Testing
+x.test<-model.matrix(ViolentCrimesPerPop~.,uscrime.test)[,-1]
+#Grafica de lambda
+ridge.mod<-glmnet(x.train,y,alpha=0)
+plot(ridge.mod,"lambda", label=TRUE)
+#Validación cruzada usando error cuadrático medio
+sal.cv<-cv.glmnet(x.train,y,alpha=0)
+plot(sal.cv)
+#Selección del mejor lambda
+mejor.lambda<-sal.cv$lambda.min
+mejor.lambda
+#Predicción con el mejor lambda
+pred<-predict(ridge.mod,s=mejor.lambda,newx=x.test)
+#Cálculo de errores
+MSE.ridge <- MSE(pred,uscrime.test$ViolentCrimesPerPop)
+Err.ridge <- ErrorRelativo(pred,uscrime.test$ViolentCrimesPerPop)
+#Cálculo de RSE para la tabla training
+summary(ridge.mod)
+#Si se puede calcular el RSE en la tabla de training
+pred2<-predict(ridge.mod,s=mejor.lambda,newx=x.train)
+RSE(pred2,uscrime.train$ViolentCrimesPerPop,dim(uscrime.train)[2]-1)
+```
+
+#### c) Regresión Lasso
+```{r, fig.align='center'}
+#Matriz con los predictores y quitando la primera columna
+x.train<-model.matrix(ViolentCrimesPerPop~.,uscrime.train)[,-1]
+#Variable a predecir
+y<-uscrime.train$ViolentCrimesPerPop
+# Tabla de Testing
+x.test<-model.matrix(ViolentCrimesPerPop~.,uscrime.test)[,-1]
+#Grafica de lambda
+lasso.mod<-glmnet(x.train,y,alpha=1)
+plot(lasso.mod,"lambda", label=TRUE)
+#Validación cruzada usando error cuadrático medio
+sal.cv<-cv.glmnet(x.train,y,alpha=1)
+plot(sal.cv)
+#Selección del mejor lambda
+mejor.lambda<-sal.cv$lambda.min
+mejor.lambda
+#Predicción con el mejor lambda
+pred<-predict(lasso.mod,s=mejor.lambda,newx=x.test)
+#Cálculo de errores
+MSE.lasso <- MSE(pred,uscrime.test$ViolentCrimesPerPop)
+Err.lasso <- ErrorRelativo(pred,uscrime.test$ViolentCrimesPerPop)
+#Cálculo de RSE para la tabla training
+summary(ridge.mod)
+#Si se puede calcular el RSE en la tabla de training
+pred2<-predict(lasso.mod,s=mejor.lambda,newx=x.train)
+RSE(pred2,uscrime.train$ViolentCrimesPerPop,dim(uscrime.train)[2]-1)
+```
+
+#### d) Comparación
+```{r, fig.align='center'}
+dt <- rbind(cbind(MSE.lm,Err.lm),cbind(MSE.ridge,Err.ridge),cbind(MSE.lasso,Err.lasso))
+colnames(dt) <- c("MSE","Error relativo")
+rownames(dt) <- c("LM","Ridge","Lasso")
+kable(dt) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
+```
+Según la información obtenida se puede observar que tanto Ridge como Lasso desminuyen el MSE y el Error Relativo, aunque no es demasiado significativo. El modelo Lasso puede utilizarse en este caso.
+
+
+
+### 2) Datos: CompraBicicletas.csv
+```{r,fig.align='center'}
+#Generación de muestra aleatoria con 700 individuos (70% de los datos)
+bici <- read.csv("CompraBicicletas.csv", header=TRUE, sep=";", dec=",")
+str(bici)
+#Dimensión de la tabla original
+summary(bici$PurchasedBike)
+#Proporción de la tabla original
+prop.table(summary(bici$PurchasedBike))
+muestra <- sample(dim(bici)[1], 700, replace = FALSE)
+tmuestra <- bici[muestra,]
+#Dimensión de la tabla original
+summary(tmuestra$PurchasedBike)
+#Proporción de la tabla de muetra
+prop.table(summary(tmuestra$PurchasedBike))
+#Si se mantienen las proporciones
+```
+
+#### a) Predicción de Purchased Bike = Yes
+
+En la tarea 4 del curso Métodos Avanzados en Minería de Datos se realizó la calibración de cada uno de los modelos y se escogieron los siguientes parámetros:
+
+* Bayes - Lapace=0
+* SVM - kernel="linear"
+* Arbol - control=rpart.control(maxdepth=15)
+* Forest  -ntree=500
+* ADA boosting - type="Discrete"
+* Redes Neuronales - size=9
+* K-vecinos - kmax=25
+
+Además se van a introducir en éste análisis los métodos glm, glm(Ridge) y glm(Lasso).
+
+```{r,fig.align='center'}
+n <- dim(tmuestra)[1]
+deteccion.yes.discrete<-rep(0,10)
+deteccion.yes.laplace.0<-rep(0,10)
+deteccion.yes.lineal<-rep(0,10)
+deteccion.yes.arbol.2<-rep(0,10)
+deteccion.yes.bosques.500<-rep(0,10)
+deteccion.yes.redes.3<-rep(0,10)
+deteccion.yes.k.25<-rep(0,10)
+deteccion.yes.glm<-rep(0,10)
+deteccion.yes.glm.ridge<-rep(0,10)
+deteccion.yes.glm.lasso<-rep(0,10)
+
+# Validación cruzada 10 veces
+for(i in 1:10) {
+  grupos <- createFolds(1:n,5)
+  
+  yes.discrete<-0
+  yes.laplace.0<-0
+  yes.lineal<-0
+  yes.arbol.2<-0
+  yes.bosques.500<-0
+  yes.redes.3<-0
+  yes.k.25<-0
+  yes.glm<-0
+  yes.glm.ridge<-0
+  yes.glm.lasso<-0
+  
+
+  for(k in 1:5) {    
+      muestra <- grupos[[k]]
+      ttesting <- tmuestra[muestra,]
+      taprendizaje <- tmuestra[-muestra,]
+      
+      modelo<-ada(PurchasedBike~.,data=taprendizaje,iter=60,nu=1,type="discrete")
+      prediccion <- predict(modelo,ttesting)
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      yes.discrete<- yes.discrete+MC[2,2]
+      
+      modelo <- naiveBayes(PurchasedBike~.,data=taprendizaje,laplace=0)
+      prediccion <- predict(modelo,ttesting)
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      yes.laplace.0<- yes.laplace.0+MC[2,2]
+      
+      modelo <- svm(PurchasedBike~.,data=taprendizaje,kernel="linear")
+      prediccion <- predict(modelo,ttesting)
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      yes.lineal<- yes.lineal+MC[2,2]
+      
+      modelo <- rpart(PurchasedBike~.,data=taprendizaje,control=rpart.control(maxdepth=15))
+      prediccion <- predict(modelo,ttesting,type='class')
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      yes.arbol.2<- yes.arbol.2+MC[2,2]
+      
+      modelo <- randomForest(PurchasedBike~.,data=taprendizaje,importance=TRUE,ntree=500)
+      prediccion <- predict(modelo,ttesting)
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      yes.bosques.500<- yes.bosques.500+MC[2,2]
+      
+      modelo <- nnet(PurchasedBike~.,data=taprendizaje,size = 9, rang = 0.1,decay = 5e-4, maxit = 100,trace=FALSE)
+      prediccion <- predict(modelo,ttesting[,-13],type="class")
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      if (dim(MC)[2]==1){
+      MC<-cbind(MC,c(0,0))
+      }
+      yes.redes.3<- yes.redes.3+MC[2,2]
+      
+      modelo <- train.kknn(PurchasedBike~.,data=taprendizaje,kmax=25)
+      prediccion <- predict(modelo,ttesting)
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      yes.k.25<- yes.k.25+MC[2,2]
+      
+      modelo <- glm(PurchasedBike~.,data=taprendizaje,family=binomial)
+      probabilidades <- predict(modelo, ttesting, type = "response")
+      prediccion <- rep("No", dim(ttesting)[1])
+      prediccion[probabilidades > 0.5] = "Yes"
+      Actual <- ttesting[,13]
+      MC <- table(Actual, prediccion)
+      yes.glm<- yes.glm+MC[2,2]
+      
+      x<-model.matrix(PurchasedBike~.,taprendizaje)[,-1]
+      y<-taprendizaje$PurchasedBike
+      ridge.mod<-glmnet(x,y,alpha=0,family="multinomial")
+      sal.cv<-cv.glmnet(x,y,alpha=0,family="multinomial")
+      mejor.lambda<-sal.cv$lambda.min
+      NNDatos<-model.matrix(PurchasedBike~.,ttesting)[,-1]
+      prediccion<-predict(ridge.mod,NNDatos,type="class",s=mejor.lambda)
+      Actual <- ttesting$PurchasedBike
+      MC <- table(Actual, prediccion)
+      yes.glm.ridge<- yes.glm.ridge+MC[2,2]
+      
+      x<-model.matrix(PurchasedBike~.,taprendizaje)[,-1]
+      y<-taprendizaje$PurchasedBike
+      lasso.mod<-glmnet(x,y,alpha=1,family="multinomial")
+      sal.cv<-cv.glmnet(x,y,alpha=1,family="multinomial")
+      mejor.lambda<-sal.cv$lambda.min
+      NNDatos<-model.matrix(PurchasedBike~.,ttesting)[,-1]
+      prediccion<-predict(lasso.mod,NNDatos,type="class",s=mejor.lambda)
+      Actual <- ttesting$PurchasedBike
+      MC <- table(Actual, prediccion)
+      yes.glm.lasso<- yes.glm.lasso+MC[2,2]
+      
+  }
+  
+   deteccion.yes.discrete[i]<-yes.discrete
+   deteccion.yes.laplace.0[i]<-yes.laplace.0
+   deteccion.yes.lineal[i]<-yes.lineal
+   deteccion.yes.arbol.2[i]<-yes.arbol.2
+   deteccion.yes.bosques.500[i]<-yes.bosques.500
+   deteccion.yes.redes.3[i]<-yes.redes.3
+   deteccion.yes.k.25[i]<-yes.k.25
+   deteccion.yes.glm[i]<-yes.glm
+   deteccion.yes.glm.ridge[i]<-yes.glm.ridge
+   deteccion.yes.glm.lasso[i]<-yes.glm.lasso
+   
+
+}
+
+par(mar = c(4, 4, 2, 8),xpd = T)
+plot(deteccion.yes.laplace.0, col = "green", type = "b",  ylim = c(min(deteccion.yes.laplace.0,deteccion.yes.lineal,deteccion.yes.arbol.2,deteccion.yes.bosques.500,deteccion.yes.discrete,deteccion.yes.redes.3,deteccion.yes.k.25,deteccion.yes.glm,deteccion.yes.glm.ridge,deteccion.yes.glm.lasso)-5, max(deteccion.yes.laplace.0,deteccion.yes.lineal,deteccion.yes.arbol.2,deteccion.yes.bosques.500,deteccion.yes.discrete,deteccion.yes.redes.3,deteccion.yes.k.25,deteccion.yes.glm,deteccion.yes.glm.ridge,deteccion.yes.glm.lasso)+5), main = "Detección de Yes en Purchased Bike", xlab = "Número de iteración", ylab = "Cantidad de Yes detectados")
+points(deteccion.yes.lineal, col = "blue", type = "b")
+points(deteccion.yes.arbol.2, col = "red", type = "b")
+points(deteccion.yes.bosques.500, col = "cyan", type = "b")
+points(deteccion.yes.discrete, col = "magenta", type = "b")
+points(deteccion.yes.redes.3, col = "orange", type = "b")
+points(deteccion.yes.k.25, col = "grey", type = "b")
+points(deteccion.yes.glm, col = "yellow", type = "b")
+points(deteccion.yes.glm.ridge, col = "purple", type = "b")
+points(deteccion.yes.glm.lasso, col = "black", type = "b")
+legend(10.5,275, legend = c("Bayes","SVM","Arbol","Forest","ADA","Redes N.","K-vecinos", "glm","glm Ridge", "glm Lasso"), col = c("green", 
+    "blue","red","cyan","magenta","orange","grey","yellow","purple","black"), lty = 1, lwd = 1,xpd = T)
+
+```
+No se puede determinar con claridad cuál es el mejor método, pero los métodos de K-vecinos y Forest parecen tener un mejor desempeño en relación a la detección de SI.
+
+
+#### b) Cálculo de errores globales
+```{r,fig.align='center'}
+n <- dim(tmuestra)[1]
+deteccion.error.discrete<-rep(0,10)
+deteccion.error.laplace.0<-rep(0,10)
+deteccion.error.lineal<-rep(0,10)
+deteccion.error.arbol.2<-rep(0,10)
+deteccion.error.bosques.500<-rep(0,10)
+deteccion.error.redes.3<-rep(0,10)
+deteccion.error.k.25<-rep(0,10)
+deteccion.error.glm<-rep(0,10)
+deteccion.error.glm.ridge<-rep(0,10)
+deteccion.error.glm.lasso<-rep(0,10)
+
+# Validación cruzada 10 veces
+for(i in 1:10) {
+  grupos <- createFolds(1:n,5)
+  
+  error.discrete<-0
+  error.laplace.0<-0
+  error.lineal<-0
+  error.arbol.2<-0
+  error.bosques.500<-0
+  error.redes.3<-0
+  error.k.25<-0
+  error.glm<-0
+  error.glm.ridge<-0
+  error.glm.lasso<-0
+  
+
+  for(k in 1:5) {    
+      muestra <- grupos[[k]]
+      ttesting <- tmuestra[muestra,]
+      taprendizaje <- tmuestra[-muestra,]
+      
+      modelo<-ada(PurchasedBike~.,data=taprendizaje,iter=60,nu=1,type="discrete")
+      prediccion <- predict(modelo,ttesting)
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      error.discrete<- error.discrete+(1-(sum(diag(MC)))/sum(MC))*100
+      
+      modelo <- naiveBayes(PurchasedBike~.,data=taprendizaje,laplace=0)
+      prediccion <- predict(modelo,ttesting)
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      error.laplace.0<- error.laplace.0+(1-(sum(diag(MC)))/sum(MC))*100
+      
+      modelo <- svm(PurchasedBike~.,data=taprendizaje,kernel="linear")
+      prediccion <- predict(modelo,ttesting)
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      error.lineal<- error.lineal+(1-(sum(diag(MC)))/sum(MC))*100
+      
+      modelo <- rpart(PurchasedBike~.,data=taprendizaje,control=rpart.control(maxdepth=15))
+      prediccion <- predict(modelo,ttesting,type='class')
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      error.arbol.2<- error.arbol.2+(1-(sum(diag(MC)))/sum(MC))*100
+      
+      modelo <- randomForest(PurchasedBike~.,data=taprendizaje,importance=TRUE,ntree=500)
+      prediccion <- predict(modelo,ttesting)
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      error.bosques.500<- error.bosques.500+(1-(sum(diag(MC)))/sum(MC))*100
+      
+      modelo <- nnet(PurchasedBike~.,data=taprendizaje,size = 9, rang = 0.1,decay = 5e-4, maxit = 100,trace=FALSE)
+      prediccion <- predict(modelo,ttesting[,-13],type="class")
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      if (dim(MC)[2]==1){
+      MC<-cbind(MC,c(0,0))
+      }
+      error.redes.3<- error.redes.3+(1-(sum(diag(MC)))/sum(MC))*100
+      
+      modelo <- train.kknn(PurchasedBike~.,data=taprendizaje,kmax=25)
+      prediccion <- predict(modelo,ttesting)
+      Actual<-ttesting[,13]
+      MC<-table(Actual,prediccion)
+      error.k.25<- error.k.25+(1-(sum(diag(MC)))/sum(MC))*100
+      
+      modelo <- glm(PurchasedBike~.,data=taprendizaje,family=binomial)
+      probabilidades <- predict(modelo, ttesting, type = "response")
+      prediccion <- rep("No", dim(ttesting)[1])
+      prediccion[probabilidades > 0.5] = "Yes"
+      Actual <- ttesting[,13]
+      MC <- table(Actual, prediccion)
+      error.glm<- error.glm+(1-(sum(diag(MC)))/sum(MC))*100
+      
+      x<-model.matrix(PurchasedBike~.,taprendizaje)[,-1]
+      y<-taprendizaje$PurchasedBike
+      ridge.mod<-glmnet(x,y,alpha=0,family="multinomial")
+      sal.cv<-cv.glmnet(x,y,alpha=0,family="multinomial")
+      mejor.lambda<-sal.cv$lambda.min
+      NNDatos<-model.matrix(PurchasedBike~.,ttesting)[,-1]
+      prediccion<-predict(ridge.mod,NNDatos,type="class",s=mejor.lambda)
+      Actual <- ttesting$PurchasedBike
+      MC <- table(Actual, prediccion)
+      error.glm.ridge<- error.glm.ridge+(1-(sum(diag(MC)))/sum(MC))*100
+      
+      x<-model.matrix(PurchasedBike~.,taprendizaje)[,-1]
+      y<-taprendizaje$PurchasedBike
+      lasso.mod<-glmnet(x,y,alpha=1,family="multinomial")
+      sal.cv<-cv.glmnet(x,y,alpha=1,family="multinomial")
+      mejor.lambda<-sal.cv$lambda.min
+      NNDatos<-model.matrix(PurchasedBike~.,ttesting)[,-1]
+      prediccion<-predict(lasso.mod,NNDatos,type="class",s=mejor.lambda)
+      Actual <- ttesting$PurchasedBike
+      MC <- table(Actual, prediccion)
+      error.glm.lasso<- error.glm.lasso+(1-(sum(diag(MC)))/sum(MC))*100
+  }
+  
+   deteccion.error.discrete[i]<-error.discrete/5
+   deteccion.error.laplace.0[i]<-error.laplace.0/5
+   deteccion.error.lineal[i]<-error.lineal/5
+   deteccion.error.arbol.2[i]<-error.arbol.2/5
+   deteccion.error.bosques.500[i]<-error.bosques.500/5
+   deteccion.error.redes.3[i]<-error.redes.3/5
+   deteccion.error.k.25[i]<-error.k.25/5
+   deteccion.error.glm[i]<-error.glm/5
+   deteccion.error.glm.ridge[i]<-error.glm.ridge/5
+   deteccion.error.glm.lasso[i]<-error.glm.lasso/5
+   
+
+}
+
+par(mar = c(4, 4, 2, 8),xpd = T)
+plot(deteccion.error.laplace.0, col = "green", type = "b",  ylim = c(min(deteccion.error.laplace.0,deteccion.error.lineal,deteccion.error.arbol.2,deteccion.error.bosques.500,deteccion.error.discrete,deteccion.error.redes.3,deteccion.error.k.25,deteccion.error.glm,deteccion.error.glm.ridge,deteccion.error.glm.lasso)-5, max(deteccion.error.laplace.0,deteccion.error.lineal,deteccion.error.arbol.2,deteccion.error.bosques.500,deteccion.error.discrete,deteccion.error.redes.3,deteccion.error.k.25,deteccion.error.glm,deteccion.error.glm.ridge,deteccion.error.glm.lasso)+5), main = "Detección del error", xlab = "Número de iteración", ylab = "Error cometido")
+points(deteccion.error.lineal, col = "blue", type = "b")
+points(deteccion.error.arbol.2, col = "red", type = "b")
+points(deteccion.error.bosques.500, col = "cyan", type = "b")
+points(deteccion.error.discrete, col = "magenta", type = "b")
+points(deteccion.error.redes.3, col = "orange", type = "b")
+points(deteccion.error.k.25, col = "grey", type = "b")
+points(deteccion.error.glm, col = "yellow", type = "b")
+points(deteccion.error.glm.ridge, col = "purple", type = "b")
+points(deteccion.error.glm.lasso, col = "black", type = "b")
+legend(10.5,50, legend = c("Bayes","SVM","Arbol","Forest","ADA","Redes N.","K-vecinos", "glm","glm Ridge", "glm Lasso"), col = c("green", 
+    "blue","red","cyan","magenta","orange","grey","yellow","purple","black"), lty = 1, lwd = 1,xpd = T)
+```
+El método de Forest es el que minimiza el error de mejor manera.
+
+
+#### c) Análisis de resultados
+El método que mejor desempeño tiene en este caso es el de Forest ya que tiene una alta detección de Yes y además la menor cantidad de errores en relación a los otros métodos. Se introdujeron los métodos de regresión logística pero estos no se comportan mucho mejor que los los vistos en clases anteriores.
+
+
+
+### 3) Datos: LaheHuron y airpass
+```{r,fig.align='center'}
+#LakeHuron
+data(LakeHuron)
+LakeHuron <- ts(LakeHuron,start=c(1875,1),freq=1)
+#Aproximación de polinomio cuadrático
+plot(LakeHuron,col="black",type="o")
+t<-seq(1875,1972,length=length(LakeHuron))
+t2<-t^2
+lines(t,lm(LakeHuron~t+t2)$fit,col=2,lwd=2)
+#Aproximación de serie de Fourier
+x <- 11 #Se hicieron varias pruebas con diferentes valores y se encontró el que mejor se ajusta a la preiodicidad de la serie.
+sin.t<-sin(2*x*pi*t)
+cos.t<-cos(2*x*pi*t)
+lines(t,lm(LakeHuron~t+t2+sin.t+cos.t)$fit,col=4,lwd=2)
+#Peridiograma
+res<-spec.pgram(LakeHuron, log = "no", plot = F)
+data <- data.frame(cbind(res$freq,res$spec))
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order <- order[1:4][order[1:4] > 1]
+order
+max <- res$freq[order]
+
+dygraph(data, main = "Periodograma", ylab = "Espectro") %>%
+  dyEvent(max[1], "Pico 1", labelLoc = "bottom") %>%
+  dyEvent(max[2], "Pico 2", labelLoc = "bottom") %>%
+  dyRangeSelector(dateWindow = c("0","0.5"))
+
+periodo1 <- 1/max[1] #La frecuencia de la serie de tiempo es 1
+periodo1
+periodo2 <- 1/max[2]
+periodo2
+#Los 2 períodos más importantes de la serie LakeHuron son cada 33 y 8 años aproximadamente.
+
+
+#airpass
+airpass <- ts(itsmr::airpass,start=c(1949,1),freq=12)
+#Aproximación de polinomio cuadrático
+plot(airpass,col="black",type="o")
+t<-seq(1949,1960,length=length(airpass))
+t2<-t^2
+lines(t,lm(airpass~t+t2)$fit,col=2,lwd=2)
+#Aproximación de serie de Fourier
+x <- 1
+sin.t<- sin(2*x*pi*t)
+cos.t<- cos(2*x*pi*t)
+lines(t,lm(airpass~t+t2+sin.t+cos.t)$fit,col=4,lwd=2)
+#Peridiograma
+res<-spec.pgram(airpass, log = "no", plot = F)
+data <- data.frame(cbind(res$freq,res$spec))
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order <- order[1:4][order[1:4] > 1]
+order
+max <- res$freq[order]
+
+dygraph(data, main = "Periodograma", ylab = "Espectro") %>%
+  dyEvent(max[1], "Pico 1", labelLoc = "bottom") %>%
+  dyEvent(max[2], "Pico 2", labelLoc = "bottom") %>%
+  dyRangeSelector()
+
+periodo1 <- 12/max[1] #La frecuencia de la serie de tiempo es 12
+periodo1
+periodo2 <- 12/max[2]
+periodo2
+#Los 2 períodos más importantes de la serie LakeHuron son cada 12 y 6 meses aproximadamente.
+```
+
+
+### 4) Datos: CISCO e INTEL
+```{r,fig.align='center'}
+#CISCO
+csco <- read.csv("CSCO.csv",header=T,dec=".",sep=",") [,c(1,2)]
+csco[,1] <- as.Date(csco[,1])
+csco.ts <- xts(csco[,2], order.by = csco[,1],frequency = 365)
+plot(csco.ts,type="l")
+
+#plot
+res<-spec.pgram(csco[,2], log = "no", plot = T)
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order
+max1<-res$freq[3]
+max1
+max2<-res$freq[4]
+max2
+max3<-res$freq[6]
+max3
+abline(v=max1, lty="dotted",col="red")
+abline(v=max2, lty="dotted",col="blue")
+abline(v=max3, lty="dotted",col="magenta")
+#Periodos
+periodo1 <- 1/max1
+periodo1
+periodo2 <- 1/max2
+periodo2
+periodo3 <- 1/max3
+periodo3
+
+#dygraphs
+res<-spec.pgram(csco.ts, log = "no", plot = F)
+data <- data.frame(cbind(res$freq,res$spec))
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order <- order[1:4][order[1:4] > 1]
+order
+max <- res$freq[order]
+
+dygraph(data, main = "Periodograma CISCO", ylab = "Espectro") %>%
+  dyEvent(max[1], "Pico 1", labelLoc = "bottom") %>%
+  dyEvent(max[2], "Pico 2", labelLoc = "bottom") %>%
+  dyEvent(max[3], "Pico 3", labelLoc = "bottom") %>%
+  dyRangeSelector(dateWindow = c("0","0.05"))
+#Periodos
+periodo1 <- 1/max[1] #La frecuencia es 1 puesto que xts está dideñado para series diarias
+periodo1
+periodo2 <- 1/max[2]
+periodo2
+periodo3 <- 1/max[3]
+periodo3
+#Los 3 períodos más importantes de la serie CISCO son cada 171, 128 y 84 días.
+
+
+#INTEL
+intc <- read.csv("INTC.csv",header=T,dec=".",sep=",") [,c(1,2)]
+intc[,1] <- as.Date(intc[,1])
+intc.ts <- xts(intc[,2], order.by = intc[,1],frequency = 365)
+plot(intc.ts,type="l")
+
+#plot
+res<-spec.pgram(intc[,2], log = "no", plot = T)
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order
+max1<-res$freq[2]
+max1
+max2<-res$freq[3]
+max2
+max3<-res$freq[5]
+max3
+abline(v=max1, lty="dotted",col="red")
+abline(v=max2, lty="dotted",col="blue")
+abline(v=max3, lty="dotted",col="magenta")
+#Periodos
+periodo1 <- 1/max1
+periodo1
+periodo2 <- 1/max2
+periodo2
+periodo3 <- 1/max3
+periodo3
+
+#dygraphs
+res<-spec.pgram(intc.ts, log = "no", plot = F)
+data <- data.frame(cbind(res$freq,res$spec))
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order <- order[1:4][order[1:4] > 1]
+order
+max <- res$freq[order]
+
+dygraph(data, main = "Periodograma INTEL", ylab = "Espectro") %>%
+  dyEvent(max[1], "Pico 1", labelLoc = "bottom") %>%
+  dyEvent(max[2], "Pico 2", labelLoc = "bottom") %>%
+  dyEvent(max[3], "Pico 3", labelLoc = "bottom") %>%
+  dyRangeSelector(dateWindow = c("0","0.05"))
+#Periodos
+periodo1 <- 1/max[1] #La frecuencia es 1 puesto que xts está dideñado para series diarias
+periodo1
+periodo2 <- 1/max[2]
+periodo2
+periodo3 <- 1/max[3]
+periodo3
+#Los 3 períodos más importantes de la serie INTEL son cada 256, 171 y 102 días.
+```
+
+
+### 5) Datos: NEW-DATA-1.T15
+```{r,fig.align='center'}
+data <- read.table("NEW-DATA-1.T15.txt", header = T, dec = ".", sep = " ")
+dim(data)
+temp <- data[,3]
+length(temp)
+hum <- data[,9]
+length(hum)
+
+#Temperatura
+temp.s<-ts(temp,start=c(2012,((31+29+12)*24*4+47)),freq=(366*24*4))
+plot(temp.s,type="l")
+
+#plot
+res<-spec.pgram(temp.s, log = "no", plot = T)
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order
+max1<-res$freq[30]
+max1
+max2<-res$freq[2]
+max2
+max3<-res$freq[4]
+max3
+abline(v=max1, lty="dotted",col="red")
+abline(v=max2, lty="dotted",col="blue")
+abline(v=max3, lty="dotted",col="magenta")
+#Periodos
+periodo1 <- (366*24*4)/max1
+periodo1
+periodo2 <- (366*24*4)/max2
+periodo2
+periodo3 <- (366*24*4)/max3
+periodo3
+
+#dygraphs
+res<-spec.pgram(temp.s, log = "no", plot = F)
+data <- data.frame(cbind(res$freq,res$spec))
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order <- order[1:4][order[1:4] > 1]
+order
+max <- res$freq[order]
+
+dygraph(data, main = "Periodograma Temperatura", ylab = "Espectro") %>%
+  dyEvent(max[1], "Pico 1", labelLoc = "bottom") %>%
+  dyEvent(max[2], "Pico 2", labelLoc = "bottom") %>%
+  dyEvent(max[3], "Pico 3", labelLoc = "bottom") %>%
+  dyRangeSelector(dateWindow = c("0","500"))
+#Periodos
+periodo1 <- (366*24*4)/max[1]
+periodo1
+periodo2 <- (366*24*4)/max[2]
+periodo2
+periodo3 <- (366*24*4)/max[3]
+periodo3
+
+dt <- rbind(cbind(periodo1,periodo1/4,periodo1/(4*24)),cbind(periodo2,periodo2/4,periodo2/(4*24)),cbind(periodo3,periodo3/4,periodo3/(4*24)))
+colnames(dt) <- c("1/4 de hora","Horas","Días")
+rownames(dt) <- c("Periodo 1","Periodo 2","Periodo 3")
+kable(dt) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
+
+#Los 3 períodos más importantes de la serie de Temperatura son cada 1, 15 y 7.5 días.
+
+
+#Humedad
+hum.s<-ts(hum,start=c(2012,((31+29+12)*24*4+47)),freq=(366*24*4))
+plot(hum.s,type="l")
+
+#plot
+res<-spec.pgram(hum.s, log = "no", plot = T)
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order
+max1<-res$freq[3]
+max1
+max2<-res$freq[2]
+max2
+max3<-res$freq[5]
+max3
+abline(v=max1, lty="dotted",col="red")
+abline(v=max2, lty="dotted",col="blue")
+abline(v=max3, lty="dotted",col="magenta")
+#Periodos
+periodo1 <- (366*24*4)/max1
+periodo1
+periodo2 <- (366*24*4)/max2
+periodo2
+periodo3 <- (366*24*4)/max3
+periodo3
+
+#dygraphs
+res<-spec.pgram(hum.s, log = "no", plot = F)
+data <- data.frame(cbind(res$freq,res$spec))
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order <- order[1:4][order[1:4] > 1]
+order
+max <- res$freq[order]
+
+dygraph(data, main = "Periodograma Humedad", ylab = "Espectro") %>%
+  dyEvent(max[1], "Pico 1", labelLoc = "bottom") %>%
+  dyEvent(max[2], "Pico 2", labelLoc = "bottom") %>%
+  dyEvent(max[3], "Pico 3", labelLoc = "bottom") %>%
+  dyRangeSelector(dateWindow = c("0","300"))
+#Periodos
+periodo1 <- (366*24*4)/max[1]
+periodo1
+periodo2 <- (366*24*4)/max[2]
+periodo2
+periodo3 <- (366*24*4)/max[3]
+periodo3
+
+dt <- rbind(cbind(periodo1,periodo1/4,periodo1/(4*24)),cbind(periodo2,periodo2/4,periodo2/(4*24)),cbind(periodo3,periodo3/4,periodo3/(4*24)))
+colnames(dt) <- c("1/4 de hora","Horas","Días")
+rownames(dt) <- c("Periodo 1","Periodo 2","Periodo 3")
+kable(dt) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
+
+#Los 3 períodos más importantes de la serie de Temperatura son cada 10, 15 y 6 días.
+```
+
+
+
+### 6) Datos: Trafico
+```{r,fig.align='center'}
+traf <- read.csv("Trafico.csv",header=F,dec=".",sep=",")
+traf<-t(traf)
+traf<-as.numeric(t(traf))
+traf.s<-ts(traf,start=c(2010,1),freq=365)
+plot(traf.s,type="l")
+
+#plot
+res<-spec.pgram(traf.s, log = "no", plot = T)
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order
+max1<-res$freq[108]
+max1
+max2<-res$freq[216]
+max2
+max3<-res$freq[324]
+max3
+abline(v=max1, lty="dotted",col="red")
+abline(v=max2, lty="dotted",col="blue")
+abline(v=max3, lty="dotted",col="magenta")
+#Periodos
+periodo1 <- (365)/max1
+periodo1
+periodo2 <- (365)/max2
+periodo2
+periodo3 <- (365)/max3
+periodo3
+
+#dygraphs
+res<-spec.pgram(traf.s, log = "no", plot = F)
+data <- data.frame(cbind(res$freq,res$spec))
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order <- order[1:4][order[1:4] > 1]
+order
+max <- res$freq[order]
+
+dygraph(data, main = "Periodograma Temperatura", ylab = "Espectro") %>%
+  dyEvent(max[1], "Pico 1", labelLoc = "bottom") %>%
+  dyEvent(max[2], "Pico 2", labelLoc = "bottom") %>%
+  dyEvent(max[3], "Pico 3", labelLoc = "bottom") %>%
+  dyRangeSelector(dateWindow = c("0","60"))
+#Periodos
+periodo1 <- (365)/max[1]
+periodo1
+periodo2 <- (365)/max[2]
+periodo2
+periodo3 <- (365)/max[3]
+periodo3
+#Los 3 períodos más importantes de la serie de Temperatura son cada 24, 12 y 8 días.
+```

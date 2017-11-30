@@ -1,0 +1,652 @@
+---
+output: 
+  html_document :
+    theme: cerulean
+    toc: true
+    toc_float: true
+
+---
+
+## Tarea 4 - Predicción de Inventarios Series de Tiempo {.tabset}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(knitr.table.format = "html") 
+library(knitr)
+library(rmarkdown)
+library(readxl)
+library(dygraphs)
+library(xts)
+library(chron)
+library(lubridate)
+library(itsmr)
+library(timeDate)
+library(kableExtra)
+library(glmnet)
+library(forecast)
+library(CombMSC)
+library(fmsb)
+library(FactoMineR)
+library(dtw)
+library(rattle)
+        
+setwd("G:/Google Drive/Promidat/Series_de_Tiempo_Legrende/Tarea4")
+```
+
+### 1) Datos: deaths
+```{r}
+#Funciones
+ER <- function(Pron,Real) {
+  return(sum(abs(Pron-Real))/abs(sum(Real)))
+}
+
+#Error cuadrátido medio
+ECM<-function(Pred,Real) {
+  N<-length(Real)
+  ss<-sum((Real-Pred)^2)
+  return((1/N)*ss)
+}
+
+#Porcentaje de fallos hacia arriba
+PFA <- function(Pron,Real) {
+  Total<-0
+  N<-length(Pron)
+  for(i in 1:N) {
+    if(Pron[i]>=Real[i])
+      Total<-Total+1      
+  }
+  return(Total/N)
+}
+
+#Porcentaje de fallos hacia abajo
+PTFA <- function(Pron,Real) {
+  Total<-0
+  SReal<-0
+  N<-length(Pron)
+  for(i in 1:N) {
+    if(Pron[i]>=Real[i]) {
+      Total<-Total+(Pron[i]-Real[i])
+      SReal<-SReal+abs(Real[i])
+    }
+  }
+  if(Total==0)
+    SReal=1
+  return(Total/SReal)
+}
+
+#Función para calibrar Holt-Winters
+calibrar<-function(serie.aprendizaje,serie.testing) {
+  error.c<-Inf
+  alpha.i<-0.1  # alpha no puede ser cero
+  while(alpha.i<=1) {
+    beta.i<-0
+    while(beta.i<=1) {
+      gamma.i<-0
+      while(gamma.i<=1) {
+         mod.i<-HoltWinters(serie.aprendizaje,alpha=alpha.i,beta=beta.i,gamma=gamma.i)
+         res.i<-predict(mod.i,n.ahead=length(serie.testing))
+         error.i<-sqrt(ECM(res.i,serie.testing))
+         if(error.i<error.c) {
+           error.c<-error.i
+           mod.c<-mod.i         
+         }
+         gamma.i<-gamma.i+0.1
+      }
+      beta.i<-beta.i+0.1
+    }
+    alpha.i<-alpha.i+0.1
+  }  
+  return(mod.c)
+}
+```
+
+
+```{r, fig.align='center'}
+## Datos como series de tiempo
+death <- ts(itsmr::deaths,start=c(1973,1),freq=12)
+deaths <- splitTrainTest(death, numTrain = length(deaths)-10) # Ultimos 10 meses para test
+length(deaths$train)
+length(deaths$test)
+
+## Calibración del modelo Holt-Winters
+modelo <- calibrar(deaths$train,deaths$test)
+modelo
+
+res.c<-predict(modelo,n.ahead=length(deaths$test))
+er1<-ER(res.c,deaths$test)
+pfa1<-PFA(res.c,deaths$test)
+ptfa1<-PTFA(res.c,deaths$test)
+ecm1<-sqrt(ECM(res.c,deaths$test))
+err1<-c(er1,pfa1,ptfa1,ecm1)
+
+## Box Jenkins con auto arima
+auto.arima(deaths$train)
+fit<-arima(deaths$train,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12))
+pred<-predict(fit,n.ahead=10)
+er2<-ER(pred$pred,deaths$test)
+pfa2<-PFA(pred$pred,deaths$test)
+ptfa2<-PTFA(pred$pred,deaths$test)
+ecm2<-sqrt(ECM(pred$pred,deaths$test))
+err2<-c(er2,pfa2,ptfa2,ecm2)
+
+## Errores
+errores<-rbind(err1,err2)
+rownames(errores)<-c("Errores Holt-Winters Modelo Calibrado","Errores Box-Jenkings")
+colnames(errores)<-c("Error Relativo","PFA","PTFA","Error Cuadratico Medio")
+errores<-as.data.frame(errores)
+maximos<-apply(errores,2,max)
+minimos<-apply(errores,2,min)
+errores<-rbind(minimos,errores)
+errores<-rbind(maximos,errores)
+errores
+
+## Gráfico de radar
+radarchart(errores,maxmin=TRUE,axistype=4,axislabcol="slategray4",
+           centerzero=FALSE,seg=8,cglcol="gray67",
+           pcol=c("green","blue"),
+           plty=1,
+           plwd=3,
+           title="Comparacion de Errores")
+
+legenda <-legend(1.5,1, legend=c("Holt-Winters Calibrado","Box-Jenkings"),
+                 seg.len=-1.4,
+                 title="Errores",
+                 pch=21, 
+                 bty="n" ,lwd=3, y.intersp=1, horiz=FALSE,
+                 col=c("green","blue"))
+
+## Predicción para 10 meses futuros
+modelo.c <- HoltWinters(death,alpha=0.1,beta=0.3,gamma=0.2) # Valores obtenidos de la calibración
+pred <- predict(modelo.c,prediction.interval = TRUE,n.ahead=10)
+
+## Con dygraphs
+preds<-pred[,1]
+LimInf<-pred[,3]
+LimSup<-pred[,2]
+per_1 <- ymd("1973-01-01") + months(0:(length(death)-1))
+per_2 <- ymd("1979-01-01") + months(0:(length(pred[,1])-1))
+todas.series<-cbind(death=xts(itsmr::deaths,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Deaths de 1973 a 1979",ylab="Muertes")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("1973-01-01","1980-01-01"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+```
+Si se utiliza el Error Relativo como índice comparativo el método de Holt Winters es mejor.
+
+### 2) Datos: Caj101
+```{r, fig.align='center'}
+## Datos como series de tiempo
+Caj101<-read.csv("Cajero101.csv",header=F,dec=".",sep=";")
+Caj101<-t(Caj101)
+Caj101<-as.vector(Caj101)
+Caj101<-ts(Caj101,start=c(2008,1),freq=365)
+Caj101.ts <- splitTrainTest(Caj101, numTrain = length(Caj101)-31) # Ultimos 31 días para test
+length(Caj101.ts$train)
+length(Caj101.ts$test)
+
+## Calibración del modelo Holt-Winters
+modelo <- calibrar(Caj101.ts$train,Caj101.ts$test)
+modelo
+
+res.c<-predict(modelo,n.ahead=length(Caj101.ts$test))
+er1<-ER(res.c,Caj101.ts$test)
+pfa1<-PFA(res.c,Caj101.ts$test)
+ptfa1<-PTFA(res.c,Caj101.ts$test)
+ecm1<-sqrt(ECM(res.c,Caj101.ts$test))
+err1<-c(er1,pfa1,ptfa1,ecm1)
+
+## Box Jenkins con auto arima
+auto.arima(Caj101.ts$train)
+fit<-arima(Caj101.ts$train,order=c(2,1,2))
+pred<-predict(fit,n.ahead=31)
+er2<-ER(pred$pred,Caj101.ts$test)
+pfa2<-PFA(pred$pred,Caj101.ts$test)
+ptfa2<-PTFA(pred$pred,Caj101.ts$test)
+ecm2<-sqrt(ECM(pred$pred,Caj101.ts$test))
+err2<-c(er2,pfa2,ptfa2,ecm2)
+
+## Errores
+errores<-rbind(err1,err2)
+rownames(errores)<-c("Errores Holt-Winters Modelo Calibrado","Errores Box-Jenkings")
+colnames(errores)<-c("Error Relativo","PFA","PTFA","Error Cuadratico Medio")
+errores<-as.data.frame(errores)
+maximos<-apply(errores,2,max)
+minimos<-apply(errores,2,min)
+errores<-rbind(minimos,errores)
+errores<-rbind(maximos,errores)
+errores
+
+## Gráfico de radar
+radarchart(errores,maxmin=TRUE,axistype=4,axislabcol="slategray4",
+           centerzero=FALSE,seg=8,cglcol="gray67",
+           pcol=c("green","blue"),
+           plty=1,
+           plwd=3,
+           title="Comparacion de Errores")
+
+legenda <-legend(1.5,1, legend=c("Holt-Winters Calibrado","Box-Jenkings"),
+                 seg.len=-1.4,
+                 title="Errores",
+                 pch=21, 
+                 bty="n" ,lwd=3, y.intersp=1, horiz=FALSE,
+                 col=c("green","blue"))
+
+## Si se utiliza el Error Relativo como índice comparativo el método de Holt Winters es mejor.
+
+## Predicción para 7 días futuros
+modelo.c <- HoltWinters(Caj101,alpha=0.1,beta=0,gamma=0.6) # Valores obtenidos de la calibración
+pred <- predict(modelo.c,prediction.interval = TRUE,n.ahead=7)
+
+## Con dygraphs
+preds<-pred[,1]
+LimInf<-pred[,3]
+LimSup<-pred[,2]
+per_1 <- ymd("2008-01-01") + 0:(length(Caj101)-1)
+per_2 <- ymd("2012-03-01") + 0:(length(pred[,1])-1)
+todas.series<-cbind(Caj101.ts=xts(Caj101,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Cajero 101 de 01/1/2008 a 07/03/2012",ylab="Cantidad de dinero")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2012-01-01","2012-03-08"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+```
+AL tratarse de una predicción no se le pueden calcular los errores ya que no hay forma de comparar con valores reales.
+
+### 3) Datos: CISCO e INTEL
+```{r, fig.align='center'}
+#Datos como series de tiempo
+csco <- read.csv("CSCO.csv",header=T,dec=".",sep=",") [,2]
+intc <- read.csv("INTC.csv",header=T,dec=".",sep=",") [,2]
+
+#Quitando fines de semana y feriados
+fechas <- seq(as.Date("2014-09-2") , as.Date("2017-08-29"), by = "day")
+fechas.filtradas <- fechas[ !weekdays(fechas) %in% c("sábado","domingo")]
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2014))]
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2015))]
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2016))]
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2017))]
+
+csco.xts <- xts(csco, fechas.filtradas)
+intc.xts <- xts(intc, fechas.filtradas)
+csco.ts <- ts(csco,start=c(2014,9,2),freq=365)
+intc.ts <- ts(intc,start=c(2014,9,2),freq=365)
+
+csco.ts <- splitTrainTest(csco.ts, numTrain = length(csco.ts)-10) # Ultimos 10 días para test
+intc.ts <- splitTrainTest(intc.ts, numTrain = length(intc.ts)-10)
+
+auto.arima(csco.xts)
+auto.arima(intc.xts)
+
+## CISCO
+## Calibración del modelo Holt-Winters
+modelo <- calibrar(csco.ts$train,csco.ts$test)
+modelo
+res.c<-predict(modelo,n.ahead=length(csco.ts$test))
+er1<-ER(res.c,csco.ts$test)
+pfa1<-PFA(res.c,csco.ts$test)
+ptfa1<-PTFA(res.c,csco.ts$test)
+ecm1<-sqrt(ECM(res.c,csco.ts$test))
+err1<-c(er1,pfa1,ptfa1,ecm1)
+
+## Box Jenkins con auto arima
+auto.arima(csco.ts$train)
+fit<-arima(csco.ts$train,order=c(2,1,2))
+pred<-predict(fit,n.ahead=10)
+er2<-ER(pred$pred,csco.ts$test)
+pfa2<-PFA(pred$pred,csco.ts$test)
+ptfa2<-PTFA(pred$pred,csco.ts$test)
+ecm2<-sqrt(ECM(pred$pred,csco.ts$test))
+err2<-c(er2,pfa2,ptfa2,ecm2)
+
+## Errores
+errores<-rbind(err1,err2)
+rownames(errores)<-c("Errores Holt-Winters Modelo Calibrado","Errores Box-Jenkings")
+colnames(errores)<-c("Error Relativo","PFA","PTFA","Error Cuadratico Medio")
+errores<-as.data.frame(errores)
+maximos<-apply(errores,2,max)
+minimos<-apply(errores,2,min)
+errores<-rbind(minimos,errores)
+errores<-rbind(maximos,errores)
+errores
+
+## Gráfico de radar
+radarchart(errores,maxmin=TRUE,axistype=4,axislabcol="slategray4",
+           centerzero=FALSE,seg=8,cglcol="gray67",
+           pcol=c("green","blue"),
+           plty=1,
+           plwd=3,
+           title="Comparacion de Errores")
+
+legenda <-legend(1.5,1, legend=c("Holt-Winters Calibrado","Box-Jenkings"),
+                 seg.len=-1.4,
+                 title="Errores",
+                 pch=21, 
+                 bty="n" ,lwd=3, y.intersp=1, horiz=FALSE,
+                 col=c("green","blue"))
+##Si se utiliza el Error Relativo como índice comparativo el método de Holt Winters es mejor.
+
+## Predicción para 10 días futuros
+csco.ts <- ts(csco,start=c(2014,9,2),freq=365)
+modelo.c <- HoltWinters(csco.ts,alpha=0.3,beta=0.7,gamma=0.8) # Valores obtenidos de la calibración
+pred <- predict(modelo.c,prediction.interval = TRUE,n.ahead=10)
+## Con dygraphs
+preds<-pred[,1]
+LimInf<-pred[,3]
+LimSup<-pred[,2]
+per_1 <- fechas.filtradas
+per_2 <- ymd("2017-08-30") + days(0:(length(pred[,1])-1+4))
+per_2 <- per_2[ !weekdays(per_2) %in% c("sábado","domingo")]
+todas.series<-cbind(csco.ts=xts(csco,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+dygraph(todas.series,main="CISCO de 2014-09-2 a 2017-09-12")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2014-09-02","2017-09-12"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+
+## INTEL
+## Calibración del modelo Holt-Winters
+modelo <- calibrar(intc.ts$train,intc.ts$test)
+modelo
+res.c<-predict(modelo,n.ahead=length(intc.ts$test))
+er1<-ER(res.c,intc.ts$test)
+pfa1<-PFA(res.c,intc.ts$test)
+ptfa1<-PTFA(res.c,intc.ts$test)
+ecm1<-sqrt(ECM(res.c,intc.ts$test))
+err1<-c(er1,pfa1,ptfa1,ecm1)
+
+## Box Jenkins con auto arima
+auto.arima(intc.ts$train)
+fit<-arima(intc.ts$train,order=c(0,1,0))
+pred<-predict(fit,n.ahead=10)
+er2<-ER(pred$pred,intc.ts$test)
+pfa2<-PFA(pred$pred,intc.ts$test)
+ptfa2<-PTFA(pred$pred,intc.ts$test)
+ecm2<-sqrt(ECM(pred$pred,intc.ts$test))
+err2<-c(er2,pfa2,ptfa2,ecm2)
+
+## Errores
+errores<-rbind(err1,err2)
+rownames(errores)<-c("Errores Holt-Winters Modelo Calibrado","Errores Box-Jenkings")
+colnames(errores)<-c("Error Relativo","PFA","PTFA","Error Cuadratico Medio")
+errores<-as.data.frame(errores)
+maximos<-apply(errores,2,max)
+minimos<-apply(errores,2,min)
+errores<-rbind(minimos,errores)
+errores<-rbind(maximos,errores)
+errores
+
+## Gráfico de radar
+radarchart(errores,maxmin=TRUE,axistype=4,axislabcol="slategray4",
+           centerzero=FALSE,seg=8,cglcol="gray67",
+           pcol=c("green","blue"),
+           plty=1,
+           plwd=3,
+           title="Comparacion de Errores")
+
+legenda <-legend(1.5,1, legend=c("Holt-Winters Calibrado","Box-Jenkings"),
+                 seg.len=-1.4,
+                 title="Errores",
+                 pch=21, 
+                 bty="n" ,lwd=3, y.intersp=1, horiz=FALSE,
+                 col=c("green","blue"))
+##Si se utiliza el Error Relativo como índice comparativo el método de Holt Winters es mejor.
+
+## Predicción para 10 días futuros
+intc.ts <- ts(intc,start=c(2014,9,2),freq=365)
+modelo.c <- HoltWinters(intc.ts,alpha=0.5,beta=0.5,gamma=0) # Valores obtenidos de la calibración
+pred <- predict(modelo.c,prediction.interval = TRUE,n.ahead=10)
+
+## Con dygraphs
+preds<-pred[,1]
+LimInf<-pred[,3]
+LimSup<-pred[,2]
+per_1 <- fechas.filtradas
+per_2 <- ymd("2017-08-30") + days(0:(length(pred[,1])-1+4))
+per_2 <- per_2[ !weekdays(per_2) %in% c("sábado","domingo")]
+todas.series<-cbind(intc.ts=xts(intc,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+dygraph(todas.series,main="INTEL de 2014-09-2 a 2017-09-12")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2014-09-02","2017-09-12"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+```
+
+### 4) Datos: NEW-DATA-1.T15
+```{r, fig.align='center'}
+#Datos como series de tiempo
+data <- read.table("NEW-DATA-1.T15.txt", header = T, dec = ".", sep = " ")
+temp <- data[,3]
+temp.s <- ts(temp,start=c(2012,((31+29+12)*24*4+47)),freq=(366*24*4)) #Datos cada 15 minutos
+temp.ts <- splitTrainTest(temp.s, numTrain = length(temp.s)-8) # Ultimas 2 horas para test
+
+## Calibración del modelo Holt-Winters
+#Error in decompose(ts(x[1L:wind], start = start(x), frequency = f), seasonal) : time series has no or less than 2 periods
+
+#se genera un error en la función HoltWInters ya que al tener una frecuencia de 366*24*4=35136, se requiere al menos una cantidad de datos que sea el doble de ese valor para hacer el modelado de la estacionalidad. 
+```
+
+### 5) Datos: Trafico
+La fuente de datos que se va a utilizar corresponde al volumen de datos en Gbit trasegado por un elemento de la red móvil. Los datos son recopilados por hora desde el 2 de enero del 2010 al 7 de enero del 2013. El comportamiento esperado es que los fines de semana disminuye un poco el tráfico en relación a los días laborales. El domingo es el día de menor tráfico.
+```{r, fig.align='center'}
+#Datos como series de tiempo
+traf <- read.csv("Trafico.csv",header=F,dec=".",sep=",")
+traf<-t(traf)
+traf<-as.numeric(t(traf))
+fechas <- ymd_hm("2010-01-02 00:00", tz="America/Guatemala") + hours(0:(length(traf)-1))
+head(fechas)
+tail(fechas)
+traf.xts <- xts(traf,fechas)
+traf.ts <- ts(traf,start=c(2010,1,2),freq=365*24)
+tail(traf.ts)
+traf.s <- splitTrainTest(traf.ts, numTrain = length(traf.ts)-7928) # 7928 corresponde al 30% de los datos
+
+## Calibración del modelo Holt-Winters
+modelo <- calibrar(traf.s$train,traf.s$test)
+modelo
+
+res.c<-predict(modelo,n.ahead=length(traf.s$test))
+er1<-ER(res.c,traf.s$test)
+pfa1<-PFA(res.c,traf.s$test)
+ptfa1<-PTFA(res.c,traf.s$test)
+ecm1<-sqrt(ECM(res.c,traf.s$test))
+err1<-c(er1,pfa1,ptfa1,ecm1)
+
+## Box Jenkins con auto arima
+auto.arima(traf.s$train)
+fit<-arima(traf.s$train,order=c(5,1,4))
+pred<-predict(fit,n.ahead=10)
+er2<-ER(pred$pred,traf.s$test)
+pfa2<-PFA(pred$pred,traf.s$test)
+ptfa2<-PTFA(pred$pred,traf.s$test)
+ecm2<-sqrt(ECM(pred$pred,traf.s$test))
+err2<-c(er2,pfa2,ptfa2,ecm2)
+
+## Errores
+errores<-rbind(err1,err2)
+rownames(errores)<-c("Errores Holt-Winters Modelo Calibrado","Errores Box-Jenkings")
+colnames(errores)<-c("Error Relativo","PFA","PTFA","Error Cuadratico Medio")
+errores<-as.data.frame(errores)
+maximos<-apply(errores,2,max)
+minimos<-apply(errores,2,min)
+errores<-rbind(minimos,errores)
+errores<-rbind(maximos,errores)
+errores
+
+## Gráfico de radar
+radarchart(errores,maxmin=TRUE,axistype=4,axislabcol="slategray4",
+           centerzero=FALSE,seg=8,cglcol="gray67",
+           pcol=c("green","blue"),
+           plty=1,
+           plwd=3,
+           title="Comparacion de Errores")
+
+legenda <-legend(1.5,1, legend=c("Holt-Winters Calibrado","Box-Jenkings"),
+                 seg.len=-1.4,
+                 title="Errores",
+                 pch=21, 
+                 bty="n" ,lwd=3, y.intersp=1, horiz=FALSE,
+                 col=c("green","blue"))
+
+## Predicción para 10 meses futuros
+modelo.c <- HoltWinters(traf.ts,alpha=0.1,beta=0,gamma=0) # Valores obtenidos de la calibración
+pred <- predict(modelo.c,prediction.interval = TRUE,n.ahead=24)
+## Con dygraphs
+preds<-pred[,1]
+LimInf<-pred[,3]
+LimSup<-pred[,2]
+per_1 <- ymd_hm("2010-01-02 00:00", tz="America/Guatemala") + hours(0:(length(traf)-1))
+tail(per_1)
+per_2 <- ymd_hm("2013-01-07 05:00", tz="America/Guatemala") + hours(0:(length(pred[,1])-1))
+todas.series<-cbind(traf.ts=xts(traf,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Tráfico")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2010-01-01","2013-01-10"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+
+#Por alguna razón el modelo no está funcionando bien con los datos proporcionados. El último dato de la serie no "calza" con el primer dato de la predicción, debería seguir la linea hacia arriba por así decirlo.
+
+```
+
+### 6) Datos: DJTable.csv & DJTableTransponse.csv
+```{r, fig.align='center'}
+dj <- read.csv("DJTable.csv",header=T,dec=".",sep=";",row.names=1)
+djt <- read.csv("DJTableTranspose.csv",header=T,dec=".",sep=";",row.names=1)
+
+## DJTable
+res<-PCA(dj, scale.unit=TRUE, ncp=5, graph = FALSE)
+plot(res, axes=c(1, 2), choix="ind", col.ind="Red",new.plot=TRUE)
+plot(res, axes=c(1, 2), choix="var", col.var="blue",new.plot=TRUE)
+
+## DJTableTranspose
+res<-PCA(djt, scale.unit=TRUE, ncp=5, graph = FALSE)
+plot(res, axes=c(1, 2), choix="ind", col.ind="Red",new.plot=TRUE)
+plot(res, axes=c(1, 2), choix="var", col.var="blue",new.plot=TRUE)
+```
+
+### 7) Datos: DJTable.csv & DJTableTransponse.csv
+```{r, fig.align='center'}
+dj <- read.csv("DJTable.csv",header=T,dec=".",sep=";",row.names=1)
+djt <- read.csv("DJTableTranspose.csv",header=T,dec=".",sep=";",row.names=1)
+
+## DJTable
+clust.series = hclust(dist(dj))
+par(mfrow=c(1,1))
+plot(clust.series)
+centros<-centers.hclust(dj,clust.series,nclust=3,use.median=FALSE)
+par(mfrow=c(2,2))
+plot(centros[1,],type="o")
+plot(centros[2,],type="o")
+plot(centros[3,],type="o")
+
+## DJTableTranspose
+clust.series = hclust(dist(djt))
+par(mfrow=c(1,1))
+plot(clust.series)
+centros<-centers.hclust(djt,clust.series,nclust=3,use.median=FALSE)
+par(mfrow=c(2,2))
+plot(centros[1,],type="o")
+plot(centros[2,],type="o")
+plot(centros[3,],type="o")
+```
+
+### 8) Datos: DJTable.csv & DJTableTransponse.csv
+```{r, fig.align='center'}
+dj <- read.csv("DJTable.csv",header=T,dec=".",sep=";",row.names=1)
+djt <- read.csv("DJTableTranspose.csv",header=T,dec=".",sep=";",row.names=1)
+
+## DJTable
+grupos<-kmeans(dj,6,iter.max = 1000)
+par(mfrow=c(3,2))
+plot(grupos$centers[1,],type="o")
+plot(grupos$centers[2,],type="o")
+plot(grupos$centers[3,],type="o")
+
+## DJTableTranspose
+grupos<-kmeans(djt,6,iter.max = 1000)
+par(mfrow=c(3,2))
+plot(grupos$centers[1,],type="o")
+plot(grupos$centers[2,],type="o")
+plot(grupos$centers[3,],type="o")
+```
+
+### 9) Datos: Planta001.csv & PLanta002.csv
+```{r, fig.align='center'}
+planta001 <- read.csv("Planta001.csv",header=T,dec=",",sep=";",row.names=1)
+planta002 <- read.csv("PLanta002.csv",header=T,dec=",",sep=";",row.names=1)
+planta001 <- t(planta001)
+planta002 <- t(planta002)
+
+planta001.ts <- ts(planta001,start=c(2012,3,2),freq=365)
+planta002.ts <- ts(planta002,start=c(2011,6,24),freq=365)
+
+## Planta001
+
+##Se observa en los datos que aproximadamente a partir de setiembre 2013 la tendencia de estabiliza un poco. Para calibrar el modelo se van a utilizar menos datos, siendo éstos los más recientes  
+planta001.ts <- tail(planta001.ts,746) #Menos datos
+planta001.s <- splitTrainTest(planta001.ts, numTrain = length(planta001.ts)-16) # 16 días para el testing
+## Calibración del modelo Holt-Winters
+modelo <- calibrar(planta001.s$train,planta001.s$test)
+modelo
+
+## Predicción para 16 días futuros
+modelo.c <- HoltWinters(planta001.ts,alpha=1,beta=0,gamma=0) # Valores obtenidos de la calibración
+pred <- predict(modelo.c,prediction.interval = TRUE,n.ahead=16)
+pred
+## Con dygraphs
+preds<-pred[,1]
+LimInf<-pred[,3]
+LimSup<-pred[,2]
+per_1 <- ymd("2012-03-02", tz="America/Guatemala") + days(0:(length(planta001)-1))
+tail(per_1)
+per_2 <- ymd("2015-05-13", tz="America/Guatemala") + days(0:(length(pred[,1])-1))
+todas.series<-cbind(planta001.ts=xts(planta001,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Planta001",ylab="Consumo de agua")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "")%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+
+p.planta001 <- preds
+f.1 <- as.character(as.Date(per_2))
+p.1 <- t(p.planta001)
+write.table(p.1, "P_Planta001.csv",col.names=f.1,sep=";",dec=",",row.names = F)
+
+## Planta002
+
+##Se va a utilizar el mismo principio que en la Planta001 
+planta002.ts <- tail(planta002.ts,746) #Menos datos
+planta002.s <- splitTrainTest(planta002.ts, numTrain = length(planta002.ts)-16) # 16 días para el testing
+## Calibración del modelo Holt-Winters
+modelo <- calibrar(planta002.s$train,planta002.s$test)
+modelo
+
+## Predicción para 16 días futuros
+modelo.c <- HoltWinters(planta002.ts,alpha=0.1,beta=0,gamma=0.4) # Valores obtenidos de la calibración
+pred <- predict(modelo.c,prediction.interval = TRUE,n.ahead=16)
+pred
+## Con dygraphs
+preds<-pred[,1]
+LimInf<-pred[,3]
+LimSup<-pred[,2]
+per_1 <- ymd("2011-06-24", tz="America/Guatemala") + days(0:(length(planta002)-1))
+tail(per_1)
+per_2 <- ymd("2015-05-12", tz="America/Guatemala") + days(0:(length(pred[,1])-1))
+todas.series<-cbind(planta002.ts=xts(planta002[,1],order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Planta002",ylab="Consumo de agua")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "")%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+
+p.planta002 <- preds
+f.2 <- as.character(as.Date(per_2))
+p.2 <- t(p.planta002)
+write.table(p.2, "P_Planta002.csv",col.names=f.2,sep=";",dec=",",row.names = F)
+```

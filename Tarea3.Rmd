@@ -1,0 +1,404 @@
+---
+output: 
+  html_document :
+    theme: cerulean
+    toc: true
+    toc_float: true
+
+---
+
+## Tarea 3 - Predicción de Inventarios Series de Tiempo {.tabset}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(knitr.table.format = "html") 
+library(knitr)
+library(rmarkdown)
+library(readxl)
+library(dygraphs)
+library(xts)
+library(chron)
+library(lubridate)
+library(itsmr)
+library(timeDate)
+library(kableExtra)
+library(glmnet)
+library(forecast)
+        
+setwd("C:/Users/paacun/Google Drive/Promidat/Series_de_Tiempo_Legrende/Tarea3")
+```
+
+### 1) Datos: deaths
+```{r}
+#Datos como series de tiempo
+deaths <- ts(itsmr::deaths,start=c(1973,1),freq=12)
+tail(deaths)
+
+## SARIMA(1,2,1)(2,1,2)
+# Con periodo = 12
+fit<-arima(deaths,order=c(1,2,1),seasonal=list(order=c(2,1,2),period=12))
+pred<-predict(fit,n.ahead=12)
+pred
+
+#Por qué periodo 12?
+res<-spec.pgram(deaths, log = "no", plot = F)
+data <- data.frame(cbind(res$freq,res$spec))
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order <- order[1:4][order[1:4] > 1]
+order
+max <- res$freq[order]
+
+dygraph(data, main = "Periodograma", ylab = "Espectro") %>%
+  dyEvent(max[1], "Pico 1", labelLoc = "bottom") %>%
+  dyRangeSelector()
+
+periodo1 <- 12/max[1] #La frecuencia de la serie de tiempo es 12
+periodo1
+
+#El pico más importante se da con una periodicidad de 12 meses, de ahí que se seleccione ese valor para el modelo SARIMA
+
+#Con plot
+plot(deaths,xlim=c(1973,1980),ylim=c(6000,13000),type="o")
+lines(pred$pred,col="red",type="o")
+lines(pred$pred+2*pred$se,col="blue",lty=3,type="o")
+lines(pred$pred-2*pred$se,col="blue",lty=3,type="o")
+
+#Con dygraphs
+preds<-pred$pred
+LimInf<-preds-2*pred$se
+LimSup<-preds+2*pred$se
+per_1<-seq(as.Date("1973-1-1"),as.Date("1978-12-1"),"month")
+head(per_1)
+per_2<-seq(as.Date("1979-1-1"),as.Date("1979-12-1"),"month")
+per_2
+todas.series<-cbind(deaths=xts(itsmr::deaths,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Muertes accidentales en USA de 1973 a 1979",ylab="Cantidad de muertes")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "")%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+```
+
+### 2) Datos: Caj101
+```{r}
+#Datos como series de tiempo
+Caj101<-read.csv("Cajero101.csv",header=F,dec=".",sep=";")
+Caj101<-t(Caj101)
+Caj101<-as.vector(Caj101)
+Caj101.ts<-ts(Caj101,start=c(2008,1),freq=365)
+plot(Caj101.ts)
+
+#Qué periodo usar
+res<-spec.pgram(Caj101.ts, log = "no", plot = F)
+data <- data.frame(cbind(res$freq,res$spec))
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order <- order[1:4][order[1:4] > 1]
+order
+max <- res$freq[order]
+
+dygraph(data, main = "Periodograma", ylab = "Espectro") %>%
+  dyEvent(max[1], "Pico 1", labelLoc = "bottom") %>%
+  dyRangeSelector()
+
+periodo1 <- 365/max[1] #La frecuencia de la serie de tiempo es 365
+periodo1
+#El pico más importante se da con una periodicidad de 15 días, de ahí que se seleccione ese valor para el modelo SARIMA
+
+## SARIMA(1,1,2)(2,1,2)
+# Con periodo = 15
+fit<-arima(Caj101.ts,order=c(1,1,2),seasonal=list(order=c(2,1,2),period=15))
+pred<-predict(fit,n.ahead=8)
+pred
+
+#Con plot (Graficando sólo el año 2012)
+plot(Caj101.ts,xlim=c(2012.0,2012.2),ylim=c(18000,12000000),type="o")
+lines(pred$pred,col="red",type="o")
+lines(pred$pred+2*pred$se,col="blue",lty=3,type="o")
+lines(pred$pred-2*pred$se,col="blue",lty=3,type="o")
+
+#Con dygraphs
+preds<-pred$pred
+LimInf<-preds-2*pred$se
+LimSup<-preds+2*pred$se
+per_1 <- ymd("2008-01-01") + 0:(length(Caj101)-1)
+per_2 <- ymd("2012-03-01") + 0:(length(pred$pred)-1)
+todas.series<-cbind(Caj101.ts=xts(Caj101,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Cajero 101 de 01/1/2008 a 08/03/2012",ylab="Cantidad de dinero")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2012-01-01","2012-03-08"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+
+
+#Usando 2 meses y SARIMA(7,1,7)(2,1,2)
+Caj101.ts.2<-ts(tail(Caj101.ts,60),start=c(2012,1),freq=365)
+
+## SARIMA(7,1,7)(2,1,2)
+# Con periodo = 15
+fit<-arima(Caj101.ts.2,order=c(7,1,7),seasonal=list(order=c(2,1,2),period=15))
+pred<-predict(fit,n.ahead=8)
+pred
+
+#Con plot
+plot(Caj101.ts.2,xlim=c(2012,2012.2),ylim=c(18000,12000000),type="o")
+lines(pred$pred,col="red",type="o")
+lines(pred$pred+2*pred$se,col="blue",lty=3,type="o")
+lines(pred$pred-2*pred$se,col="blue",lty=3,type="o")
+
+#Con dygraphs
+preds<-pred$pred
+LimInf<-preds-2*pred$se
+LimSup<-preds+2*pred$se
+per_1 <- ymd("2012-01-01") + 0:(length(tail(Caj101.ts,60))-1)
+per_2 <- ymd("2012-03-01") + 0:(length(pred$pred)-1)
+todas.series<-cbind(Caj101.ts.2=xts(tail(Caj101.ts,60),order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Cajero 101 de 01/01/2012 a 08/03/2012",ylab="Cantidad de dinero")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2012-01-01","2012-03-08"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+
+#Se observa cómo utilizando menos datos (2 meses) se obtiene una mejor predicción al menos de manera visual ya que todavía no se tienen las herramientas para evaluar los modelos. 
+```
+
+### 3) Datos: CISCO e INTEL
+```{r}
+#Datos como series de tiempo
+csco <- read.csv("CSCO.csv",header=T,dec=".",sep=",") [,2]
+intc <- read.csv("INTC.csv",header=T,dec=".",sep=",") [,2]
+
+#Quitando fines de semana y feriados
+fechas <- seq(as.Date("2015-08-02") , as.Date("2017-08-02"), by = "day")
+fechas.filtradas <- fechas[ !weekdays(fechas) %in% c("sábado","domingo")]
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2015))]
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2016))]
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2017))]
+
+csco.xts <- xts(csco, fechas.filtradas)
+intc.xts <- xts(intc, fechas.filtradas)
+csco.ts <- as.ts(csco.xts)
+intc.ts <- as.ts(intc.xts)
+
+auto.arima(csco.xts)
+auto.arima(intc.xts)
+
+## ARIMA(0,1,0) para CISCO
+fit<-arima(csco.xts,order=c(0,1,0))
+pred<-predict(fit,n.ahead=10)
+pred
+
+#Con plot (Graficando solamente el año 2017)
+plot(csco.ts,xlim=c(350,525),ylim=c(22,40),type="o")
+lines(pred$pred,col="red",type="o")
+lines(pred$pred+2*pred$se,col="blue",lty=3,type="o")
+lines(pred$pred-2*pred$se,col="blue",lty=3,type="o")
+
+#Con dygraphs
+preds<-pred$pred
+LimInf<-preds-2*pred$se
+LimSup<-preds+2*pred$se
+per_2 <- seq(as.Date("2017-08-03"),as.Date("2017-08-16"),"day")
+per_2 <- per_2[ !weekdays(per_2) %in% c("sábado","domingo")]
+todas.series<-cbind(csco.xts,LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="CISCO de 02/08/2015 a 16/08/2017",ylab="CISCO")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2017-01-01","2017-08-16"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+
+## ARIMA(0,1,0) para INTEL
+fit<-arima(intc.xts,order=c(0,1,0))
+pred<-predict(fit,n.ahead=10)
+pred
+length(pred$pred)
+
+#Con plot (Graficando solamente el año 2017)
+plot(intc.ts,xlim=c(350,525),ylim=c(22,40),type="o")
+lines(pred$pred,col="red",type="o")
+lines(pred$pred+2*pred$se,col="blue",lty=3,type="o")
+lines(pred$pred-2*pred$se,col="blue",lty=3,type="o")
+
+#Con dygraphs
+preds<-pred$pred
+LimInf<-preds-2*pred$se
+LimSup<-preds+2*pred$se
+todas.series<-cbind(intc.xts,LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="INTEL de 02/08/2015 a 16/08/2017",ylab="INTEL")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2017-01-01","2017-08-16"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+
+#En ambos casos el pronóstico que se obtiene es la media ya que el modelo propuesto por el Auto Arima es malo.
+```
+
+### 4) Datos: NEW-DATA-1.T15
+```{r}
+#Datos como series de tiempo
+data <- read.table("NEW-DATA-1.T15.txt", header = T, dec = ".", sep = " ")
+temp <- data[,3]
+temp.s<-ts(temp,start=c(2012,((31+29+12)*24*4+47)),freq=(366*24*4))
+plot(temp.s)
+
+auto.arima(temp.s)
+
+## ARIMA(1,1,0)
+fit<-arima(temp.s,order=c(1,1,0))
+pred<-predict(fit,n.ahead=9)
+pred
+
+#Con plot (Graficando unos cuantos días)
+plot(temp.s,xlim=c(2012.27,2012.277),ylim=c(10,26),type="o")
+lines(pred$pred,col="red",type="o")
+lines(pred$pred+2*pred$se,col="blue",lty=3,type="o")
+lines(pred$pred-2*pred$se,col="blue",lty=3,type="o")
+
+#Con dygraphs
+preds<-pred$pred
+LimInf<-preds-2*pred$se
+LimSup<-preds+2*pred$se
+per_1<-seq(ymd_hm("2012-03-13 11:45", tz="America/Guatemala"),ymd_hm("2012-04-11 06:30", tz="America/Guatemala"),by = 900) #900 segundos equivalen a 15 minutos
+per_2<-seq(ymd_hm("2012-04-11 06:45", tz="America/Guatemala"),ymd_hm("2012-04-11 08:45", tz="America/Guatemala"),by = 900)
+per_2
+todas.series<-cbind(temp.s.2=xts(temp,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Temperatura de 2012-03-13 11:45 a 2012-04-11 08:45",ylab="Temperatura")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2012-04-08","2012-04-12"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+```
+
+### 5) Datos: Trafico
+La fuente de datos que se va a utilizar corresponde al volumen de datos en Gbit trasegado por un elemento de la red móvil. Los datos son recopilados por hora desde el 2 de enero del 2010 al 18 de abril del 2010. El comportamiento esperado es que los fines de semana disminuye un poco el tráfico en relación a los días laborales. El domingo es el día de menor tráfico.
+```{r}
+#Datos como series de tiempo
+traf <- read.csv("Trafico.csv",header=F,dec=".",sep=",")
+traf<-t(traf)
+traf<-as.numeric(t(traf))
+
+fechas <- ymd_hm("2010-01-02 00:00", tz="America/Guatemala") + hours(0:(length(traf)-1))
+head(fechas)
+tail(fechas)
+traf.ts<-xts(traf,fechas)
+dygraph(traf.ts, main = "Tráfico del 01-01-2010 al 07-01-2017") %>% 
+  dyRangeSelector()
+
+#Qué periodo usar?
+traf.ts<-ts(traf,start=c(2010,2),freq=365*24)
+res<-spec.pgram(traf.ts, log = "no", plot = F)
+data <- data.frame(cbind(res$freq,res$spec))
+order <- order(res$spec,res$freq, decreasing = TRUE)
+order <- order[1:4][order[1:4] > 1]
+order
+max <- res$freq[order]
+
+dygraph(data, main = "Periodograma", ylab = "Espectro") %>%
+  dyEvent(max[1], "Pico 1", labelLoc = "bottom") %>%
+  dyEvent(max[2], "Pico 2", labelLoc = "bottom") %>%
+  dyEvent(max[3], "Pico 3", labelLoc = "bottom") %>%
+  dyRangeSelector()
+
+periodo1 <- 365*24/max[1] #La frecuencia de la serie de tiempo es 365*24
+periodo1
+periodo2 <- 365*24/max[2] 
+periodo2
+periodo3 <- 365*24/max[3] 
+periodo3
+#El pico más importante se da con una periodicidad de 24 horas.
+
+auto.arima(traf.ts)
+
+## SARIMA(4,0,5)(1,1,2)
+# Con periodo = 24
+fit<-arima(traf.ts,order=c(4,0,5),seasonal=list(order=c(1,1,2),period=24))
+pred<-predict(fit,n.ahead=168) #Pronóstico de 7 días
+pred
+
+#Con plot (Graficando sólo los últimos días)
+plot(traf.ts,xlim=c(2010.27,2010.311),ylim=c(0,12000),type="o")
+lines(pred$pred,col="red",type="o")
+lines(pred$pred+2*pred$se,col="blue",lty=3,type="o")
+lines(pred$pred-2*pred$se,col="blue",lty=3,type="o")
+
+#Con dygraphs
+preds<-pred$pred
+LimInf<-preds-2*pred$se
+LimSup<-preds+2*pred$se
+per_1 <- ymd_hm("2010-01-02 00:00", tz="America/Guatemala") + hours(1:(length(traf.ts))-1)
+per_2 <- ymd_hm("2010-04-18 20:00", tz="America/Guatemala") + hours(1:(length(pred$pred))-1)
+todas.series<-cbind(traf.ts=xts(traf.ts,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Tráfico de 02/01/2010 a 25/04/2010",ylab="Cantidad de dinero")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2010-04-10","2010-04-26"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+
+#El comportamiento diario parece bien pronosticado pero la disminución durante el fin de semana no es pronosticado de manera adecuada.Se van a usar menos datos.
+
+## SARIMA(4,0,5)(1,1,2) (Usando como fuente de datos solamente los últimos 7 días)
+# Con periodo = 24
+
+fit<-arima(tail(traf.ts,24*7),order=c(4,0,5),seasonal=list(order=c(1,1,2),period=24))
+pred<-predict(fit,n.ahead=24*7) #Pronóstico de 7 días
+pred
+
+#Con plot (Graficando sólo los últimos días)
+plot(traf.ts,xlim=c(2010.27,2010.311),ylim=c(0,12000),type="o")
+lines(pred$pred,col="red",type="o")
+lines(pred$pred+2*pred$se,col="blue",lty=3,type="o")
+lines(pred$pred-2*pred$se,col="blue",lty=3,type="o")
+
+#Con dygraphs
+preds<-pred$pred
+LimInf<-preds-2*pred$se
+LimSup<-preds+2*pred$se
+per_1 <- ymd_hm("2010-01-02 00:00", tz="America/Guatemala") + hours(1:(length(traf.ts))-1)
+per_2 <- ymd_hm("2010-04-18 20:00", tz="America/Guatemala") + hours(1:(length(pred$pred))-1)
+todas.series<-cbind(traf.ts=xts(traf.ts,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Tráfico de 02/01/2010 a 21/04/2010",ylab="Cantidad de dinero")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2010-04-10","2010-04-26"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+
+#Para el tercer modelo se van a cambiar los parámetros p,d,q así como la cantidad de datos, ahora se van a usar las 3 últimas semanas.
+
+## SARIMA(4,0,5)(1,1,2) (Usando como fuente de datos solamente las últimas 3 semanas)
+# Con periodo = 24
+
+fit<-arima(tail(traf.ts,24*21),order=c(2,0,2),seasonal=list(order=c(2,1,1),period=24))
+pred<-predict(fit,n.ahead=24*7) #Pronóstico de 7 días
+pred
+
+#Con plot (Graficando sólo los últimos días)
+plot(traf.ts,xlim=c(2010.27,2010.311),ylim=c(0,12000),type="o")
+lines(pred$pred,col="red",type="o")
+lines(pred$pred+2*pred$se,col="blue",lty=3,type="o")
+lines(pred$pred-2*pred$se,col="blue",lty=3,type="o")
+
+#Con dygraphs
+preds<-pred$pred
+LimInf<-preds-2*pred$se
+LimSup<-preds+2*pred$se
+per_1 <- ymd_hm("2010-01-02 00:00", tz="America/Guatemala") + hours(1:(length(traf.ts))-1)
+per_2 <- ymd_hm("2010-04-18 20:00", tz="America/Guatemala") + hours(1:(length(pred$pred))-1)
+todas.series<-cbind(traf.ts=xts(traf.ts,order.by=per_1),LimInf=xts(LimInf,order.by=per_2),Pronostico=xts(preds,order.by=per_2),LimSup=xts(LimSup,order.by=per_2))
+
+dygraph(todas.series,main="Tráfico de 02/01/2010 a 25/04/2010",ylab="Cantidad de dinero")%>%
+  dySeries(c("LimInf", "Pronostico", "LimSup"), label = "pronóstico")%>%
+  dyRangeSelector(height = 20, strokeColor = "", dateWindow = c("2010-04-10","2010-04-26"))%>%  
+  dyOptions(axisLineColor = "navy", 
+            gridLineColor = "lightblue")
+
+#Con los reultados obtenidos puedo concluir que dada la serie de datos se obtiene en resultado similar usando todos los datos o usando una pequeña partede los mismos. Todavía no se cuenta con las herramientas de calibración de los modelos por los que no se puede evaluar facilmente el efecto en el cambio de los parámetros p,d,q.
+```
+
+

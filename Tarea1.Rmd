@@ -1,0 +1,377 @@
+---
+title: "Tarea1_pablo_acuna"
+author: "Pablo Acuña Quirós"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(rmarkdown)
+library(readxl)
+library(dygraphs)
+library(xts)
+library(chron)
+library(lubridate)
+library(itsmr)
+library(timeDate)
+        
+setwd("G:/Google Drive/Promidat/Series_de_Tiempo_Legrende/Tarea1")
+```
+
+
+#### 1) Procesamiento de cajeros
+```{r, fig.align='center'}
+Caj108<-read.csv("cajero108.csv",header=F,dec=".",sep=";")
+Caj109<-read.csv("cajero109.csv",header=F,dec=".",sep=";")
+Caj110<-read.csv("cajero110.csv",header=F,dec=".",sep=";")
+Caj111<-read.csv("cajero111.csv",header=F,dec=".",sep=";")
+Caj112<-read.csv("cajero112.csv",header=F,dec=".",sep=";")
+Caj113<-read.csv("cajero113.csv",header=F,dec=".",sep=";")
+Caj114<-read.csv("cajero114.csv",header=F,dec=".",sep=";")
+Caj115<-read.csv("cajero115.csv",header=F,dec=".",sep=";")
+Caj116<-read.csv("cajero116.csv",header=F,dec=".",sep=";")
+
+Caj108<-t(Caj108)
+Caj109<-t(Caj109)
+Caj110<-t(Caj110)
+Caj111<-t(Caj111)
+Caj112<-t(Caj112)
+Caj113<-t(Caj113)
+Caj113<-as.numeric(t(Caj113))
+Caj114<-t(Caj114)
+Caj114<-as.numeric(t(Caj114))
+Caj115<-t(Caj115)
+Caj115<-as.numeric(t(Caj115))
+Caj116<-t(Caj116)
+Caj116<-as.numeric(t(Caj116))
+
+
+fechas <- ymd("2008-01-01") + 0:(length(Caj108)-1)
+Caj108<-xts(Caj108,fechas)
+plot(Caj108,type="o",col="blue")
+dygraph(Caj108, main = "Cajero 108")
+
+fechas <- ymd("2008-01-01") + 0:(length(Caj109)-1)
+Caj109<-xts(Caj109,fechas)
+plot(Caj109,type="o",col="blue")
+dygraph(Caj109, main = "Cajero 109")
+
+fechas <- ymd("2008-01-01") + 0:(length(Caj110)-1)
+Caj110<-xts(Caj110,fechas)
+plot(Caj110,type="o",col="blue")
+dygraph(Caj110, main = "Cajero 110")
+
+fechas <- ymd("2008-01-01") + 0:(length(Caj111)-1)
+Caj111<-xts(Caj111,fechas)
+plot(Caj111,type="o",col="blue")
+dygraph(Caj111, main = "Cajero 111")
+
+fechas <- ymd("2008-01-01") + 0:(length(Caj112)-1)
+Caj112<-xts(Caj112,fechas)
+plot(Caj112,type="o",col="blue")
+dygraph(Caj112, main = "Cajero 112")
+
+length(Caj113)
+fechas <- ymd("2008-01-01") + 0:(length(Caj113)-1)
+Caj113<-xts(Caj113,fechas)
+plot(Caj113,type="o",col="blue")
+dygraph(Caj113, main = "Cajero 113")
+
+fechas <- ymd("2008-01-01") + 0:(length(Caj114)-1)
+Caj114<-xts(Caj114,fechas)
+plot(Caj114,type="o",col="blue")
+dygraph(Caj114, main = "Cajero 114")
+
+fechas <- ymd("2008-01-01") + 0:(length(Caj115)-1)
+Caj115<-xts(Caj115,fechas)
+plot(Caj115,type="o",col="blue")
+dygraph(Caj115, main = "Cajero 115")
+
+fechas <- ymd("2008-01-01") + 0:(length(Caj116)-1)
+Caj116<-xts(Caj116,fechas)
+plot(Caj116,type="o",col="blue")
+dygraph(Caj116, main = "Cajero 116")
+```
+
+#### 2) Procesamiento de itsmr
+```{r, fig.align='center'}
+fechas <- seq(as.Date("1972-08-28") , as.Date("1972-12-17"), by = "day")
+fechas
+weekdays(fechas)
+fechas.filtradas <- fechas[ !weekdays(fechas) %in% c("sábado","domingo")]
+holidayNERC(1972)
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNERC(1972))]
+weekdays(fechas.filtradas)
+fechas.filtradas
+dowj <- xts(dowj,fechas.filtradas)
+plot(dowj,type="o",col="blue")
+dygraph(dowj, main = "dowj")
+
+
+strikes <- ts(strikes,start=c(1951,1),freq=1)
+plot(strikes,type="o",col="blue")
+dygraph(strikes, main = "strikes")
+
+Sunspots <- ts(Sunspots,start=c(1770,1),freq=1)
+plot(Sunspots,type="o",col="blue")
+dygraph(Sunspots, main = "Sunspots")
+
+wine <- ts(wine,start=c(1980,1),freq=12)
+plot(wine,type="o",col="blue")
+dygraph(wine, main = "wine")
+```
+
+
+#### 3) Test de normalidad: Cajero 103
+```{r, fig.align='center'}
+Caj103<-read.csv("cajero103.csv",header=F,dec=".",sep=";")
+Caj103<-as.matrix(Caj103)
+Caj103<-as.vector(Caj103)
+
+h <- hist(Caj103, probability = T, main = "Análisis gráfico de normalidad",xlab = "", ylab = "",col = "red")
+lines(density(Caj103,na.rm = T),lwd = 2, col = "green")
+mu <- mean(Caj103, na.rm = T)
+sigma <- sd(Caj103,na.rm = T)
+x <- seq(min(h$mids,na.rm = T), max(h$mids,na.rm = T), length = length(Caj103))
+y <- dnorm(x, mu, sigma)
+lines(x,y,lwd =2, col = "blue")
+
+qqnorm(diff(Caj103))
+qqline(diff(Caj103),col = "red")
+
+nortest::pearson.test(diff(Caj103))
+nortest::lillie.test(diff(Caj103))
+nortest::cvm.test(diff(Caj103))
+```
+
+Los tres test dan un valor de p<0.05 por lo que existe evidencia estadística para rechazar Ho. La serie de diferencias no sigue una distribución normal.
+
+
+#### 4) Suavizado lineal: Cajero 103
+```{r, fig.align='center'}
+#Usando plot
+plot(Caj103,type="l")
+caj.1 <- filter(Caj103,filter=rep(1/4,4))
+caj.2 <- filter(Caj103,filter=rep(1/6,6))
+caj.3 <- filter(Caj103,filter=rep(1/10,10))
+lines(caj.1,col="red")
+lines(caj.2,col="purple")
+lines(caj.3,col="blue")
+
+#Usando dygraphs
+caj.1 <- stats::filter(Caj103, filter = rep(1/4,4))
+caj.2 <- stats::filter(Caj103, filter = rep(1/6,6))
+caj.3 <- stats::filter(Caj103, filter = rep(1/6,6))
+
+fechas <- ymd("1998-01-01") + 0:(length(Caj103)-1)
+Caj103.s <- xts(Caj103,fechas)
+
+Caj103.1 <- xts(caj.1, fechas)
+Caj103.2 <- xts(caj.2, fechas)
+Caj103.3 <- xts(caj.3, fechas)
+
+series <- cbind(Caj103.s,Caj103.1,Caj103.2,Caj103.3)
+dygraph(series, main = "Cajero 103") %>%
+  dyHighlight(highlightCircleSize = 5, 
+              highlightSeriesBackgroundAlpha = 0.3,
+              hideOnMouseOut = T)
+```
+
+
+#### 5) Descomposición: Cajero 103
+```{r, fig.align='center'}
+Caj103<-read.csv("cajero103.csv",header=F,dec=".",sep=";")
+Caj103<-as.matrix(Caj103)
+Caj103<-as.vector(Caj103)
+Caj103.s<-ts(Caj103,start=c(1998,1),freq=365)
+plot(Caj103.s)
+s<-stl(Caj103.s,s.window="periodic")
+plot(s)
+```
+
+
+#### 6) Suavizado lineal: CSCO, INTC
+```{r, fig.align='center'}
+csco <- read.csv("CSCO.csv",header=T,dec=".",sep=",") [,2]
+intc <- read.csv("INTC.csv",header=T,dec=".",sep=",") [,2]
+
+#CSCO
+#Usando plot
+plot(csco,type="l")
+csco.1 <- filter(csco,filter=rep(1/3,3))
+csco.2 <- filter(csco,filter=rep(1/13,13))
+csco.3 <- filter(csco,filter=rep(1/41,41))
+lines(csco.1,col="red")
+lines(csco.2,col="purple")
+lines(csco.3,col="blue")
+
+#Usando dygraphs
+csco.1 <- stats::filter(csco, filter = rep(1/3,3))
+csco.2 <- stats::filter(csco, filter = rep(1/13,13))
+csco.3 <- stats::filter(csco, filter = rep(1/41,41))
+
+fechas <- seq(as.Date("2015-08-02") , as.Date("2017-08-02"), by = "day")
+length(fechas)
+fechas.filtradas <- fechas[ !weekdays(fechas) %in% c("sábado","domingo")]
+length(fechas.filtradas)
+holidayNYSE(2015)
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2015))]
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2016))]
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2017))]
+length(fechas.filtradas)
+
+csco <- xts(csco, fechas.filtradas)
+csco.1 <- xts(csco.1, fechas.filtradas)
+csco.2 <- xts(csco.2, fechas.filtradas)
+csco.3 <- xts(csco.3, fechas.filtradas)
+
+series <- cbind(csco,csco.1,csco.2,csco.3)
+dygraph(series, main = "Precio de las acciones CSCO") %>%
+  dyHighlight(highlightCircleSize = 5, 
+              highlightSeriesBackgroundAlpha = 0.3,
+              hideOnMouseOut = FALSE)
+
+#INTC
+#Usando plot
+plot(intc,type="l")
+intc.1 <- filter(intc,filter=rep(1/3,3))
+intc.2 <- filter(intc,filter=rep(1/13,13))
+intc.3 <- filter(intc,filter=rep(1/41,41))
+lines(intc.1,col="red")
+lines(intc.2,col="purple")
+lines(intc.3,col="blue")
+
+#Usando dygraphs
+intc.1 <- stats::filter(intc, filter = rep(1/3,3))
+intc.2 <- stats::filter(intc, filter = rep(1/13,13))
+intc.3 <- stats::filter(intc, filter = rep(1/41,41))
+
+fechas <- seq(as.Date("2015-08-02") , as.Date("2017-08-02"), by = "day")
+length(fechas)
+fechas.filtradas <- fechas[ !weekdays(fechas) %in% c("sábado","domingo")]
+length(fechas.filtradas)
+holidayNYSE(2015)
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2015))]
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2016))]
+fechas.filtradas <- fechas.filtradas[!fechas.filtradas %in% as_date(holidayNYSE(2017))]
+length(fechas.filtradas)
+
+intc <- xts(intc, fechas.filtradas)
+intc.1 <- xts(intc.1, fechas.filtradas)
+intc.2 <- xts(intc.2, fechas.filtradas)
+intc.3 <- xts(intc.3, fechas.filtradas)
+
+series <- cbind(intc,intc.1,intc.2,intc.3)
+dygraph(series, main = "Precio de las acciones INTC") %>%
+  dyHighlight(highlightCircleSize = 5, 
+              highlightSeriesBackgroundAlpha = 0.3,
+              hideOnMouseOut = FALSE) 
+```
+
+
+#### 7) Series de tiempo: NEW-DATA-1.T15
+```{r, fig.align='center', error=T}
+data <- read.table("NEW-DATA-1.T15.txt", header = T, dec = ".", sep = " ")
+dim(data)
+temp <- data[,3]
+length(temp)
+hum <- data[,9]
+length(hum)
+
+#Test de normalidad Temperatura
+h <- hist(temp, probability = T, main = "Análisis gráfico de normalidad",xlab = "", ylab = "",col = "red")
+lines(density(temp,na.rm = T),lwd = 2, col = "green")
+mu <- mean(temp, na.rm = T)
+sigma <- sd(temp,na.rm = T)
+x <- seq(min(h$mids,na.rm = T), max(h$mids,na.rm = T), length = length(temp))
+y <- dnorm(x, mu, sigma)
+lines(x,y,lwd =2, col = "blue")
+
+qqnorm(diff(temp))
+qqline(diff(temp),col = "red")
+
+nortest::pearson.test(diff(temp))
+nortest::lillie.test(diff(temp))
+nortest::cvm.test(diff(temp))
+
+#Los tres test dan un valor de p<0.05 por lo que existe evidencia estadística para rechazar Ho. La serie de diferencias de Temperatura no sigue una distribución normal.
+
+#Test de normalidad HUmedad
+h <- hist(hum, probability = T, main = "Análisis gráfico de normalidad",xlab = "", ylab = "",col = "red")
+lines(density(hum,na.rm = T),lwd = 2, col = "green")
+mu <- mean(hum, na.rm = T)
+sigma <- sd(hum,na.rm = T)
+x <- seq(min(h$mids,na.rm = T), max(h$mids,na.rm = T), length = length(hum))
+y <- dnorm(x, mu, sigma)
+lines(x,y,lwd =2, col = "blue")
+
+qqnorm(diff(hum))
+qqline(diff(hum),col = "red")
+
+nortest::pearson.test(diff(hum))
+nortest::lillie.test(diff(hum))
+nortest::cvm.test(diff(hum))
+
+#Los tres test dan un valor de p<0.05 por lo que existe evidencia estadística para rechazar Ho. La serie de diferencias de Humedad no sigue una distribución normal.
+
+#Descomposición de las serie de Temperatura
+temp.s<-ts(temp,start=c(2012,((31+29+12)*24*4+47)),freq=(366*24*4))
+plot(temp.s)
+sa<-stl(temp.s,s.window="periodic")
+plot(sa)
+
+#Descomposición de las serie de Temperatura
+
+hum.s<-ts(hum,start=c(2012,((31+29+12)*24*4+47)),freq=(366*24*4))
+plot(hum.s)
+sb<-stl(hum.s,s.window="periodic")
+plot(sb)
+```
+En ambos casos no es posible realizar la descomposición ya que la cantidad de datos es insuficiente.
+
+
+#### 8) Series de tiempo: Trafico
+La fuente de datos que se va a utilizar corresponde al volumen de datos en Gbit trasegado por un elemento de la red móvil. Los datos son recopilados por día desde el 1 de enero del 2010 al 7 de enero del 2017.
+
+```{r}
+traf <- read.csv("Trafico.csv",header=F,dec=".",sep=",")
+traf<-t(traf)
+traf<-as.numeric(t(traf))
+
+#Usando plot
+traf.s<-ts(traf,start=c(2010,1),freq=365)
+plot(traf.s,type="l")
+
+#Usando dygraphs
+fechas <- ymd("2010-01-01") + days(0:(length(traf)-1))
+head(fechas)
+tail(fechas)
+traf.s<-xts(traf,fechas)
+dygraph(traf.s, main = "Tráfico del 01-01-2010 al 07-01-2017") %>% 
+  dyRangeSelector()
+
+#Test de normalidad
+h <- hist(traf, probability = T, main = "Análisis gráfico de normalidad",xlab = "", ylab = "",col = "red")
+lines(density(traf,na.rm = T),lwd = 2, col = "green")
+mu <- mean(traf, na.rm = T)
+sigma <- sd(traf,na.rm = T)
+x <- seq(min(h$mids,na.rm = T), max(h$mids,na.rm = T), length = length(traf))
+y <- dnorm(x, mu, sigma)
+lines(x,y,lwd =2, col = "blue")
+
+qqnorm(diff(traf))
+qqline(diff(traf),col = "red")
+
+nortest::pearson.test(diff(traf))
+nortest::lillie.test(diff(traf))
+nortest::cvm.test(diff(traf))
+#Los tres test dan un valor de p<0.05 por lo que existe evidencia estadística para rechazar Ho. La serie de diferencias no sigue una distribución normal.
+
+#Descomposición
+traf.s<-ts(traf,start=c(2010,1),freq=365)
+s<-stl(traf.s,s.window="periodic")
+plot(s)
+```
+
+
